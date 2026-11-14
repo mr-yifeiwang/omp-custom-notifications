@@ -50,7 +50,7 @@ export default function customNotifications(pi) {
       ctx?.sessionManager?.getSessionId()?.slice(0, 8) ||
       "Session";
     const notification = spawn(
-      "/opt/homebrew/bin/terminal-notifier",
+      "terminal-notifier",
       [
         "-title",
         title ? `OMP [${title}]` : "OMP",

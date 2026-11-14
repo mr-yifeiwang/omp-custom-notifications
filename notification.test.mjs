@@ -3,6 +3,52 @@ import childProcess from "node:child_process";
 import { EventEmitter } from "node:events";
 import { syncBuiltinESMExports } from "node:module";
 import { test } from "node:test";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+// Verify a notifier installed outside the default Homebrew path receives notifications
+test("notifications reach terminal-notifier on PATH", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "omp-notifier-test-"));
+  const previousPath = process.env.PATH;
+  const previousOutput = process.env.OMP_TEST_NOTIFICATION;
+  const output = join(dir, "notification");
+  try {
+    const executable = join(dir, "terminal-notifier");
+    await writeFile(
+      executable,
+      '#!/bin/sh\nprintf "%s\\n" "$@" > "$OMP_TEST_NOTIFICATION"\n',
+    );
+    await chmod(executable, 0o755);
+    process.env.PATH = dir;
+    process.env.OMP_TEST_NOTIFICATION = output;
+    const { default: extension } = await import("./index.js");
+    let handler;
+    extension({
+      on(event, fn) {
+        if (event === "tool_approval_requested") handler = fn;
+      },
+    });
+    handler({ toolName: "synthetic_tool", reason: "Synthetic approval" });
+    let content;
+    for (let attempt = 0; attempt < 100; attempt++) {
+      try {
+        content = await readFile(output, "utf8");
+        if (content.includes("synthetic_tool — Synthetic approval")) break;
+      } catch (error) {
+        if (error.code !== "ENOENT") throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.match(content ?? "", /synthetic_tool — Synthetic approval/);
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    if (previousOutput === undefined) delete process.env.OMP_TEST_NOTIFICATION;
+    else process.env.OMP_TEST_NOTIFICATION = previousOutput;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
 
 // Verify approval notifications describe the requested tool and reason
 test("approval requests show the tool and approval reason", async () => {
@@ -28,7 +74,6 @@ test("approval requests show the tool and approval reason", async () => {
       reason: "Restricted folder: /synthetic",
       input: { secret: "synthetic-secret" },
     });
-    assert.equal(invocation.command, "/opt/homebrew/bin/terminal-notifier");
     assert.ok(invocation.args.includes("OMP [Permission Request]"));
     assert.ok(
       invocation.args.includes(
