@@ -1,16 +1,61 @@
 import { spawn } from "node:child_process";
+import { parse } from "parse5";
+
+// Extract the first question from an ask form without including answer options
+function questionText(html) {
+  if (typeof html !== "string") return "";
+  const tree = parse(html);
+  const find = (node, predicate) => {
+    if (predicate(node)) return node;
+    for (const child of node.childNodes ?? []) {
+      const found = find(child, predicate);
+      if (found) return found;
+    }
+  };
+  const text = (node) => {
+    if (node.nodeName === "#text") return node.value;
+    if (["script", "style", "select", "textarea"].includes(node.tagName))
+      return "";
+    return (node.childNodes ?? []).map(text).join("");
+  };
+  const form = find(tree, (node) => node.tagName === "form");
+  if (!form) return "";
+  const candidate = find(form, (node) => {
+    if (["legend", "p", "h1", "h2", "h3"].includes(node.tagName))
+      return !!text(node).trim();
+    if (node.tagName !== "label") return false;
+    const choice = find(
+      node,
+      (child) =>
+        child.tagName === "input" &&
+        child.attrs?.some(
+          (attr) =>
+            attr.name === "type" &&
+            ["radio", "checkbox"].includes(attr.value.toLowerCase()),
+        ),
+    );
+    return !choice && !!text(node).trim();
+  });
+  return candidate ? text(candidate).replace(/\s+/g, " ").trim() : "";
+}
 
 // Notify the user when OMP needs attention
 export default function customNotifications(pi) {
   let retrying = false;
   let retryFailureNotified = false;
 
-  function notify(title, message, group) {
+  function notify(title, message, group, ctx) {
+    const session =
+      pi.getSessionName?.()?.trim() ||
+      ctx?.sessionManager?.getSessionId()?.slice(0, 8) ||
+      "Session";
     const notification = spawn(
       "/opt/homebrew/bin/terminal-notifier",
       [
         "-title",
-        title,
+        title ? `OMP [${title}]` : "OMP",
+        "-subtitle",
+        session,
         "-message",
         message,
         "-sound",
@@ -24,6 +69,13 @@ export default function customNotifications(pi) {
       pi.logger?.warn(`Could not send notification: ${error.message}`);
     });
   }
+
+  function firstLine(text, fallback) {
+    return typeof text === "string"
+      ? text.trim().split(/\r?\n/, 1)[0] || fallback
+      : fallback;
+  }
+
   // Track retry completion separately from intermediate provider errors
   pi.on("before_agent_start", () => {
     retryFailureNotified = false;
@@ -38,9 +90,13 @@ export default function customNotifications(pi) {
     if (event.success || !ctx.hasUI) return;
     retryFailureNotified = true;
     notify(
-      "OMP error",
-      "The request failed or its retry was cancelled. Check the session for details.",
+      "Error",
+      firstLine(
+        event.finalError,
+        "The request failed. Check the session for details.",
+      ),
       "omp-error",
+      ctx,
     );
   });
 
@@ -51,9 +107,13 @@ export default function customNotifications(pi) {
     if (last?.role === "assistant" && last.stopReason === "error") {
       if (retrying || retryFailureNotified) return;
       notify(
-        "OMP error",
-        "The assistant encountered an error. Check the session for details.",
+        "Error",
+        firstLine(
+          last.errorMessage,
+          "The request failed. Check the session for details.",
+        ),
         "omp-error",
+        ctx,
       );
       return;
     }
@@ -64,18 +124,30 @@ export default function customNotifications(pi) {
     )
       return;
     notify(
-      "OMP response ready",
-      "The assistant has finished responding.",
+      "",
+      firstLine(
+        last.content
+          .filter((part) => part.type === "text")
+          .map((part) => part.text)
+          .join(""),
+        "Response ready",
+      ),
       "omp-response-ready",
+      ctx,
     );
   });
 
   // Notify when a tool requires approval
-  pi.on("tool_approval_requested", () => {
+  pi.on("tool_approval_requested", (event, ctx) => {
+    const tool = event.toolName || "Tool";
+    const detail = event.reason
+      ? `${tool} — ${event.reason}`
+      : `${tool} requires approval.`;
     notify(
-      "OMP permission request",
-      "A tool is waiting for your approval.",
+      "Permission Request",
+      firstLine(detail, "A tool is waiting for your approval."),
       "omp-permission-approval",
+      ctx,
     );
   });
 
@@ -83,9 +155,11 @@ export default function customNotifications(pi) {
   pi.on("tool_execution_start", (event, ctx) => {
     if (event.toolName !== "ask" || !ctx.hasUI) return;
     notify(
-      "OMP question",
-      "The assistant is waiting for your answer.",
+      "Question",
+      questionText(event.args?.html) ||
+        "The assistant is waiting for your answer.",
       "omp-question",
+      ctx,
     );
   });
 }

@@ -1,12 +1,11 @@
 import assert from "node:assert/strict";
 import childProcess from "node:child_process";
 import { EventEmitter } from "node:events";
-import { readFile } from "node:fs/promises";
 import { syncBuiltinESMExports } from "node:module";
 import { test } from "node:test";
 
-// Verify approval notifications request a sound without exposing tool arguments
-test("approval requests produce an audible notification without exposing arguments", async () => {
+// Verify approval notifications describe the requested tool and reason
+test("approval requests show the tool and approval reason", async () => {
   const originalSpawn = childProcess.spawn;
   let invocation;
   childProcess.spawn = (command, args) => {
@@ -16,13 +15,7 @@ test("approval requests produce an audible notification without exposing argumen
   syncBuiltinESMExports();
 
   try {
-    const source = await readFile(
-      new URL("./index.js", import.meta.url),
-      "utf8",
-    );
-    const { default: extension } = await import(
-      `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`
-    );
+    const { default: extension } = await import("./index.js");
     let handler;
     extension({
       on(event, fn) {
@@ -32,10 +25,16 @@ test("approval requests produce an audible notification without exposing argumen
     assert.equal(typeof handler, "function");
     handler({
       toolName: "synthetic_tool",
+      reason: "Restricted folder: /synthetic",
       input: { secret: "synthetic-secret" },
     });
     assert.equal(invocation.command, "/opt/homebrew/bin/terminal-notifier");
-    assert.ok(invocation.args.includes("OMP permission request"));
+    assert.ok(invocation.args.includes("OMP [Permission Request]"));
+    assert.ok(
+      invocation.args.includes(
+        "synthetic_tool — Restricted folder: /synthetic",
+      ),
+    );
     const soundIndex = invocation.args.indexOf("-sound");
     assert.ok(soundIndex >= 0);
     assert.equal(invocation.args[soundIndex + 1], "default");
@@ -46,8 +45,8 @@ test("approval requests produce an audible notification without exposing argumen
   }
 });
 
-// Verify only completed assistant responses trigger a private notification
-test("completed responses notify once without exposing response text", async () => {
+// Verify completed response notifications include their first line
+test("completed responses notify once with the session and first response line", async () => {
   const originalSpawn = childProcess.spawn;
   const invocations = [];
   childProcess.spawn = (command, args) => {
@@ -56,15 +55,12 @@ test("completed responses notify once without exposing response text", async () 
   };
   syncBuiltinESMExports();
   try {
-    const source = await readFile(
-      new URL("./index.js", import.meta.url),
-      "utf8",
-    );
-    const { default: extension } = await import(
-      `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`
-    );
+    const { default: extension } = await import("./index.js");
     const handlers = {};
     extension({
+      getSessionName() {
+        return "Synthetic session";
+      },
       on(event, fn) {
         handlers[event] = fn;
       },
@@ -73,7 +69,9 @@ test("completed responses notify once without exposing response text", async () 
     const message = {
       role: "assistant",
       stopReason: "stop",
-      content: [{ type: "text", text: "synthetic-secret" }],
+      content: [
+        { type: "text", text: "First synthetic line\nSecond synthetic line" },
+      ],
     };
     handlers.agent_end(
       { messages: [message], isTerminal: false },
@@ -90,17 +88,19 @@ test("completed responses notify once without exposing response text", async () 
       { hasUI: true },
     );
     assert.equal(invocations.length, 1);
-    assert.ok(invocations[0].args.includes("OMP response ready"));
+    assert.ok(invocations[0].args.includes("OMP"));
+    assert.ok(invocations[0].args.includes("Synthetic session"));
+    assert.ok(invocations[0].args.includes("First synthetic line"));
+    assert.ok(!invocations[0].args.join(" ").includes("Second synthetic line"));
     assert.ok(invocations[0].args.includes("default"));
-    assert.ok(!invocations[0].args.join(" ").includes("synthetic-secret"));
   } finally {
     childProcess.spawn = originalSpawn;
     syncBuiltinESMExports();
   }
 });
 
-// Verify questions trigger an audible notification without disclosing form content
-test("interactive ask requests notify without exposing the question", async () => {
+// Verify questions include the question text rather than answer options
+test("interactive ask requests show the form question", async () => {
   const originalSpawn = childProcess.spawn;
   const invocations = [];
   childProcess.spawn = (command, args) => {
@@ -109,13 +109,7 @@ test("interactive ask requests notify without exposing the question", async () =
   };
   syncBuiltinESMExports();
   try {
-    const source = await readFile(
-      new URL("./index.js", import.meta.url),
-      "utf8",
-    );
-    const { default: extension } = await import(
-      `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`
-    );
+    const { default: extension } = await import("./index.js");
     const handlers = {};
     extension({
       on(event, fn) {
@@ -127,13 +121,29 @@ test("interactive ask requests notify without exposing the question", async () =
     handlers.tool_execution_start({ toolName: "ask" }, { hasUI: false });
     assert.equal(invocations.length, 0);
     handlers.tool_execution_start(
-      { toolName: "ask", args: { html: "<form>synthetic-secret</form>" } },
+      {
+        toolName: "ask",
+        args: {
+          html: "<form><fieldset><legend>Choose &amp; proceed?</legend><label><input type='radio' name='choice' value='yes'>Yes</label></fieldset></form>",
+        },
+      },
       { hasUI: true },
     );
     assert.equal(invocations.length, 1);
-    assert.ok(invocations[0].args.includes("OMP question"));
+    assert.ok(invocations[0].args.includes("OMP [Question]"));
     assert.ok(invocations[0].args.includes("default"));
-    assert.ok(!invocations[0].args.join(" ").includes("synthetic-secret"));
+    assert.ok(invocations[0].args.includes("Choose & proceed?"));
+    assert.ok(!invocations[0].args.includes("Yes"));
+    handlers.tool_execution_start(
+      {
+        toolName: "ask",
+        args: {
+          html: "<form><label>Project name? <input name='project'></label></form>",
+        },
+      },
+      { hasUI: true },
+    );
+    assert.ok(invocations[1].args.includes("Project name?"));
   } finally {
     childProcess.spawn = originalSpawn;
     syncBuiltinESMExports();
@@ -150,13 +160,7 @@ test("connection retries notify only when the retry chain ends unsuccessfully", 
   };
   syncBuiltinESMExports();
   try {
-    const source = await readFile(
-      new URL("./index.js", import.meta.url),
-      "utf8",
-    );
-    const { default: extension } = await import(
-      `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`
-    );
+    const { default: extension } = await import("./index.js");
     const handlers = {};
     extension({
       on(event, fn) {
@@ -182,10 +186,15 @@ test("connection retries notify only when the retry chain ends unsuccessfully", 
     assert.equal(invocations.length, 0);
     handlers.auto_retry_end(
       { success: false, finalError: "Retry cancelled" },
-      { hasUI: true },
+      {
+        hasUI: true,
+        sessionManager: { getSessionId: () => "synthetic-session-id" },
+      },
     );
     assert.equal(invocations.length, 1);
-    assert.ok(invocations[0].args.includes("OMP error"));
+    assert.ok(invocations[0].args.includes("OMP [Error]"));
+    assert.ok(invocations[0].args.includes("syntheti"));
+    assert.ok(invocations[0].args.includes("Retry cancelled"));
     assert.ok(invocations[0].args.includes("default"));
     assert.ok(!invocations[0].args.join(" ").includes("example.invalid"));
     handlers.agent_end(
@@ -199,6 +208,11 @@ test("connection retries notify only when the retry chain ends unsuccessfully", 
       { hasUI: true },
     );
     assert.equal(invocations.length, 2);
+    assert.ok(
+      invocations[1].args.includes(
+        "Couldn't connect to example.invalid (connection refused).",
+      ),
+    );
     handlers.auto_retry_start({ attempt: 1 }, { hasUI: true });
     handlers.auto_retry_end({ success: true }, { hasUI: true });
     assert.equal(invocations.length, 2);

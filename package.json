@@ -1,0 +1,6 @@
+{
+  "type": "module",
+  "dependencies": {
+    "parse5": "^8.1.1"
+  }
+}
