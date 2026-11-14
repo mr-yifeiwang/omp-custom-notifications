@@ -7,6 +7,44 @@ An OMP extension that sends macOS notifications when the agent needs your attent
 - A tool approval is requested
 - A request fails after any automatic retries have ended
 
+## Examples
+
+```txt
+// Generic response
+┌──────────────────────────────────────────────┐
+│ OMP                                          │
+│ Build a personal website                     │
+│ The changes are ready for review.            │
+└──────────────────────────────────────────────┘
+```
+
+```txt
+// Question
+┌──────────────────────────────────────────────┐
+│ OMP [Question]                               │
+│ Build a personal website                     │
+│ Which approach would you prefer?             │
+└──────────────────────────────────────────────┘
+```
+
+```txt
+// Permission Request
+┌──────────────────────────────────────────────┐
+│ OMP [Permission Request]                     │
+│ Build a personal website                     │
+│ bash — This command requires approval.       │
+└──────────────────────────────────────────────┘
+```
+
+```txt
+// Error
+┌──────────────────────────────────────────────┐
+│ OMP [Error]                                  │
+│ Build a personal website                     │
+│ The request failed. Please try again.        │
+└──────────────────────────────────────────────┘
+```
+
 ## Requirements
 
 - macOS
