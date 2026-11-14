@@ -45,3 +45,56 @@ test("approval requests produce an audible notification without exposing argumen
     syncBuiltinESMExports();
   }
 });
+
+// Verify only completed assistant responses trigger a private notification
+test("completed responses notify once without exposing response text", async () => {
+  const originalSpawn = childProcess.spawn;
+  const invocations = [];
+  childProcess.spawn = (command, args) => {
+    invocations.push({ command, args });
+    return new EventEmitter();
+  };
+  syncBuiltinESMExports();
+  try {
+    const source = await readFile(
+      new URL("./index.js", import.meta.url),
+      "utf8",
+    );
+    const { default: extension } = await import(
+      `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`
+    );
+    const handlers = {};
+    extension({
+      on(event, fn) {
+        handlers[event] = fn;
+      },
+    });
+    assert.equal(typeof handlers.agent_end, "function");
+    const message = {
+      role: "assistant",
+      stopReason: "stop",
+      content: [{ type: "text", text: "synthetic-secret" }],
+    };
+    handlers.agent_end(
+      { messages: [message], isTerminal: false },
+      { hasUI: true },
+    );
+    handlers.agent_end(
+      { messages: [{ ...message, stopReason: "aborted" }] },
+      { hasUI: true },
+    );
+    handlers.agent_end({ messages: [message] }, { hasUI: false });
+    assert.equal(invocations.length, 0);
+    handlers.agent_end(
+      { messages: [message], isTerminal: true },
+      { hasUI: true },
+    );
+    assert.equal(invocations.length, 1);
+    assert.ok(invocations[0].args.includes("OMP response ready"));
+    assert.ok(invocations[0].args.includes("default"));
+    assert.ok(!invocations[0].args.join(" ").includes("synthetic-secret"));
+  } finally {
+    childProcess.spawn = originalSpawn;
+    syncBuiltinESMExports();
+  }
+});
