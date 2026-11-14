@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import childProcess from "node:child_process";
-import { EventEmitter } from "node:events";
+import { EventEmitter, once } from "node:events";
 import { syncBuiltinESMExports } from "node:module";
 import { test } from "node:test";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -13,6 +13,13 @@ test("notifications reach terminal-notifier on PATH", async () => {
   const previousPath = process.env.PATH;
   const previousOutput = process.env.OMP_TEST_NOTIFICATION;
   const output = join(dir, "notification");
+  const originalSpawn = childProcess.spawn;
+  let notification;
+  childProcess.spawn = (...args) => {
+    notification = originalSpawn(...args);
+    return notification;
+  };
+  syncBuiltinESMExports();
   try {
     const executable = join(dir, "terminal-notifier");
     await writeFile(
@@ -30,18 +37,13 @@ test("notifications reach terminal-notifier on PATH", async () => {
       },
     });
     handler({ toolName: "synthetic_tool", reason: "Synthetic approval" });
-    let content;
-    for (let attempt = 0; attempt < 100; attempt++) {
-      try {
-        content = await readFile(output, "utf8");
-        if (content.includes("synthetic_tool — Synthetic approval")) break;
-      } catch (error) {
-        if (error.code !== "ENOENT") throw error;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-    assert.match(content ?? "", /synthetic_tool — Synthetic approval/);
+    const [exitCode] = await once(notification, "close");
+    assert.equal(exitCode, 0);
+    const content = await readFile(output, "utf8");
+    assert.match(content, /synthetic_tool — Synthetic approval/);
   } finally {
+    childProcess.spawn = originalSpawn;
+    syncBuiltinESMExports();
     if (previousPath === undefined) delete process.env.PATH;
     else process.env.PATH = previousPath;
     if (previousOutput === undefined) delete process.env.OMP_TEST_NOTIFICATION;
