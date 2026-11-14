@@ -98,3 +98,44 @@ test("completed responses notify once without exposing response text", async () 
     syncBuiltinESMExports();
   }
 });
+
+// Verify questions trigger an audible notification without disclosing form content
+test("interactive ask requests notify without exposing the question", async () => {
+  const originalSpawn = childProcess.spawn;
+  const invocations = [];
+  childProcess.spawn = (command, args) => {
+    invocations.push({ command, args });
+    return new EventEmitter();
+  };
+  syncBuiltinESMExports();
+  try {
+    const source = await readFile(
+      new URL("./index.js", import.meta.url),
+      "utf8",
+    );
+    const { default: extension } = await import(
+      `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`
+    );
+    const handlers = {};
+    extension({
+      on(event, fn) {
+        handlers[event] = fn;
+      },
+    });
+    assert.equal(typeof handlers.tool_execution_start, "function");
+    handlers.tool_execution_start({ toolName: "read" }, { hasUI: true });
+    handlers.tool_execution_start({ toolName: "ask" }, { hasUI: false });
+    assert.equal(invocations.length, 0);
+    handlers.tool_execution_start(
+      { toolName: "ask", args: { html: "<form>synthetic-secret</form>" } },
+      { hasUI: true },
+    );
+    assert.equal(invocations.length, 1);
+    assert.ok(invocations[0].args.includes("OMP question"));
+    assert.ok(invocations[0].args.includes("default"));
+    assert.ok(!invocations[0].args.join(" ").includes("synthetic-secret"));
+  } finally {
+    childProcess.spawn = originalSpawn;
+    syncBuiltinESMExports();
+  }
+});

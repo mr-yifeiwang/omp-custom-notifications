@@ -47,4 +47,14 @@ export default function customNotifications(pi) {
       "omp-permission-approval",
     );
   });
+
+  // Notify when a question requires an answer
+  pi.on("tool_execution_start", (event, ctx) => {
+    if (event.toolName !== "ask" || !ctx.hasUI) return;
+    notify(
+      "OMP question",
+      "The assistant is waiting for your answer.",
+      "omp-question",
+    );
+  });
 }
