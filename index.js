@@ -2,6 +2,9 @@ import { spawn } from "node:child_process";
 
 // Notify the user when OMP needs attention
 export default function customNotifications(pi) {
+  let retrying = false;
+  let retryFailureNotified = false;
+
   function notify(title, message, group) {
     const notification = spawn(
       "/opt/homebrew/bin/terminal-notifier",
@@ -21,12 +24,32 @@ export default function customNotifications(pi) {
       pi.logger?.warn(`Could not send notification: ${error.message}`);
     });
   }
+  // Track retry completion separately from intermediate provider errors
+  pi.on("before_agent_start", () => {
+    retryFailureNotified = false;
+  });
+
+  pi.on("auto_retry_start", () => {
+    retrying = true;
+  });
+
+  pi.on("auto_retry_end", (event, ctx) => {
+    retrying = false;
+    if (event.success || !ctx.hasUI) return;
+    retryFailureNotified = true;
+    notify(
+      "OMP error",
+      "The request failed or its retry was cancelled. Check the session for details.",
+      "omp-error",
+    );
+  });
 
   // Notify when an assistant response finishes or fails
   pi.on("agent_end", (event, ctx) => {
-    if (!ctx.hasUI) return;
+    if (!ctx.hasUI || event.isTerminal === false) return;
     const last = event.messages.at(-1);
     if (last?.role === "assistant" && last.stopReason === "error") {
+      if (retrying || retryFailureNotified) return;
       notify(
         "OMP error",
         "The assistant encountered an error. Check the session for details.",
@@ -34,7 +57,6 @@ export default function customNotifications(pi) {
       );
       return;
     }
-    if (event.isTerminal === false) return;
     if (
       last?.role !== "assistant" ||
       last.stopReason !== "stop" ||

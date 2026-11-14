@@ -140,8 +140,8 @@ test("interactive ask requests notify without exposing the question", async () =
   }
 });
 
-// Verify provider failures notify even when OMP plans an automatic retry
-test("assistant connection failures produce a private error notification", async () => {
+// Verify retry attempts remain silent until the retry chain fails or is cancelled
+test("connection retries notify only when the retry chain ends unsuccessfully", async () => {
   const originalSpawn = childProcess.spawn;
   const invocations = [];
   childProcess.spawn = (command, args) => {
@@ -173,16 +173,35 @@ test("assistant connection failures produce a private error notification", async
       { messages: [failure], isTerminal: false },
       { hasUI: true },
     );
+    handlers.auto_retry_start({ attempt: 1 }, { hasUI: true });
+    handlers.agent_end(
+      { messages: [failure], isTerminal: false },
+      { hasUI: true },
+    );
+    handlers.auto_retry_start({ attempt: 2 }, { hasUI: true });
+    assert.equal(invocations.length, 0);
+    handlers.auto_retry_end(
+      { success: false, finalError: "Retry cancelled" },
+      { hasUI: true },
+    );
     assert.equal(invocations.length, 1);
     assert.ok(invocations[0].args.includes("OMP error"));
     assert.ok(invocations[0].args.includes("default"));
     assert.ok(!invocations[0].args.join(" ").includes("example.invalid"));
-    handlers.agent_end({ messages: [failure] }, { hasUI: false });
     handlers.agent_end(
-      { messages: [{ ...failure, stopReason: "aborted" }] },
+      { messages: [failure], isTerminal: true },
       { hasUI: true },
     );
     assert.equal(invocations.length, 1);
+    handlers.before_agent_start({});
+    handlers.agent_end(
+      { messages: [failure], isTerminal: true },
+      { hasUI: true },
+    );
+    assert.equal(invocations.length, 2);
+    handlers.auto_retry_start({ attempt: 1 }, { hasUI: true });
+    handlers.auto_retry_end({ success: true }, { hasUI: true });
+    assert.equal(invocations.length, 2);
   } finally {
     childProcess.spawn = originalSpawn;
     syncBuiltinESMExports();
