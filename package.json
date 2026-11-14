@@ -1,6 +1,6 @@
 {
   "name": "omp-custom-notifications",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "macOS notifications for OMP responses, questions, approvals, and errors",
   "type": "module",
   "license": "MIT",
