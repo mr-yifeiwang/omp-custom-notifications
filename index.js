@@ -22,10 +22,19 @@ export default function customNotifications(pi) {
     });
   }
 
-  // Notify when an assistant response is complete
+  // Notify when an assistant response finishes or fails
   pi.on("agent_end", (event, ctx) => {
-    if (!ctx.hasUI || event.isTerminal === false) return;
+    if (!ctx.hasUI) return;
     const last = event.messages.at(-1);
+    if (last?.role === "assistant" && last.stopReason === "error") {
+      notify(
+        "OMP error",
+        "The assistant encountered an error. Check the session for details.",
+        "omp-error",
+      );
+      return;
+    }
+    if (event.isTerminal === false) return;
     if (
       last?.role !== "assistant" ||
       last.stopReason !== "stop" ||

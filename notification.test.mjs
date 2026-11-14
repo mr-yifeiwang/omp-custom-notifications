@@ -139,3 +139,52 @@ test("interactive ask requests notify without exposing the question", async () =
     syncBuiltinESMExports();
   }
 });
+
+// Verify provider failures notify even when OMP plans an automatic retry
+test("assistant connection failures produce a private error notification", async () => {
+  const originalSpawn = childProcess.spawn;
+  const invocations = [];
+  childProcess.spawn = (command, args) => {
+    invocations.push({ command, args });
+    return new EventEmitter();
+  };
+  syncBuiltinESMExports();
+  try {
+    const source = await readFile(
+      new URL("./index.js", import.meta.url),
+      "utf8",
+    );
+    const { default: extension } = await import(
+      `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`
+    );
+    const handlers = {};
+    extension({
+      on(event, fn) {
+        handlers[event] = fn;
+      },
+    });
+    const failure = {
+      role: "assistant",
+      stopReason: "error",
+      content: [],
+      errorMessage: "Couldn't connect to example.invalid (connection refused).",
+    };
+    handlers.agent_end(
+      { messages: [failure], isTerminal: false },
+      { hasUI: true },
+    );
+    assert.equal(invocations.length, 1);
+    assert.ok(invocations[0].args.includes("OMP error"));
+    assert.ok(invocations[0].args.includes("default"));
+    assert.ok(!invocations[0].args.join(" ").includes("example.invalid"));
+    handlers.agent_end({ messages: [failure] }, { hasUI: false });
+    handlers.agent_end(
+      { messages: [{ ...failure, stopReason: "aborted" }] },
+      { hasUI: true },
+    );
+    assert.equal(invocations.length, 1);
+  } finally {
+    childProcess.spawn = originalSpawn;
+    syncBuiltinESMExports();
+  }
+});
