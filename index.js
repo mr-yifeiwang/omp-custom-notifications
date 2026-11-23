@@ -151,6 +151,17 @@ export default function customNotifications(pi) {
     );
   });
 
+  // Notify when @gotgenes/pi-permission-system requires approval
+  pi.events?.on("permissions:ui_prompt", (event) => {
+    const surface = firstLine(event?.surface, "Tool");
+    const value = firstLine(event?.value, "");
+    notify(
+      "Permission Request",
+      value ? `${surface} — ${value}` : `${surface} requires approval.`,
+      "omp-permission-approval",
+    );
+  });
+
   // Notify when a question requires an answer
   pi.on("tool_execution_start", (event, ctx) => {
     if (event.toolName !== "ask" || !ctx.hasUI) return;

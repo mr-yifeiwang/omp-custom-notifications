@@ -92,6 +92,46 @@ test("approval requests show the tool and approval reason", async () => {
   }
 });
 
+// Verify permission-system prompts reach the user with their session and request
+test("permission system prompts send an approval notification", async () => {
+  const originalSpawn = childProcess.spawn;
+  const invocations = [];
+  childProcess.spawn = (command, args) => {
+    invocations.push({ command, args });
+    return new EventEmitter();
+  };
+  syncBuiltinESMExports();
+  try {
+    const { default: extension } = await import("./index.js");
+    const events = new EventEmitter();
+    const handlers = new Map();
+    extension({ events, on: (name, handler) => handlers.set(name, handler) });
+    handlers.get("session_start")?.(
+      {},
+      {
+        hasUI: true,
+        sessionManager: { getSessionId: () => "12345678-synthetic" },
+      },
+    );
+    events.emit("permissions:ui_prompt", {
+      requestId: "synthetic-request",
+      source: "tool_call",
+      surface: "bash",
+      value: "synthetic-command",
+      agentName: null,
+      request: {},
+      forwarding: null,
+    });
+    assert.equal(invocations.length, 1);
+    assert.ok(invocations[0].args.includes("OMP [Permission Request]"));
+    assert.ok(invocations[0].args.includes("Session"));
+    assert.ok(invocations[0].args.includes("bash — synthetic-command"));
+  } finally {
+    childProcess.spawn = originalSpawn;
+    syncBuiltinESMExports();
+  }
+});
+
 // Verify completed response notifications include their first line
 test("completed responses notify once with the session and first response line", async () => {
   const originalSpawn = childProcess.spawn;
