@@ -29,7 +29,7 @@ test("notifications reach terminal-notifier on PATH", async () => {
     await chmod(executable, 0o755);
     process.env.PATH = dir;
     process.env.OMP_TEST_NOTIFICATION = output;
-    const { default: extension } = await import("./index.js");
+    const { default: extension } = await import("../index.js");
     let handler;
     extension({
       on(event, fn) {
@@ -63,7 +63,7 @@ test("approval requests show the tool and approval reason", async () => {
   syncBuiltinESMExports();
 
   try {
-    const { default: extension } = await import("./index.js");
+    const { default: extension } = await import("../index.js");
     let handler;
     extension({
       on(event, fn) {
@@ -102,7 +102,7 @@ test("permission system prompts send an approval notification", async () => {
   };
   syncBuiltinESMExports();
   try {
-    const { default: extension } = await import("./index.js");
+    const { default: extension } = await import("../index.js");
     const events = new EventEmitter();
     const handlers = new Map();
     extension({ events, on: (name, handler) => handlers.set(name, handler) });
@@ -142,7 +142,7 @@ test("completed responses notify once with the session and first response line",
   };
   syncBuiltinESMExports();
   try {
-    const { default: extension } = await import("./index.js");
+    const { default: extension } = await import("../index.js");
     const handlers = {};
     extension({
       getSessionName() {
@@ -196,7 +196,7 @@ test("interactive ask requests show the form question", async () => {
   };
   syncBuiltinESMExports();
   try {
-    const { default: extension } = await import("./index.js");
+    const { default: extension } = await import("../index.js");
     const handlers = {};
     extension({
       on(event, fn) {
@@ -247,7 +247,7 @@ test("connection retries notify only when the retry chain ends unsuccessfully", 
   };
   syncBuiltinESMExports();
   try {
-    const { default: extension } = await import("./index.js");
+    const { default: extension } = await import("../index.js");
     const handlers = {};
     extension({
       on(event, fn) {

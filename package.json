@@ -5,7 +5,7 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
-    "test": "node --test notification.test.mjs"
+    "test": "node --test test/notification.test.mjs"
   },
   "dependencies": {
     "parse5": "^8.1.1"
